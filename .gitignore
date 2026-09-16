@@ -1,0 +1,20 @@
+# venv + caches
+.venv/
+.venv-dml/
+__pycache__/
+*.pyc
+*.pyo
+
+# large binaries: regenerable, see requirements.txt + tools/
+*.pth
+*.onnx
+*.xml
+*.bin
+
+# video + outputs (test.mp4 is the source; annotated outputs + tracks are derivable)
+*.mp4
+out*/
+tracks.json
+
+# calibration frames: regenerable via tools/make_calibration.py
+calibration/

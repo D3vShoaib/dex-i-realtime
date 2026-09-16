@@ -1,0 +1,22 @@
+# TrackTrack defaults tuned for 5 FPS static video + ECPose person detections.
+# Baseline: motion-only (with_reid: false, gmc none). Phase 3 enables ReID.
+tracker_type: tracktrack
+track_high_thresh: 0.5
+track_low_thresh: 0.2
+new_track_thresh: 0.6
+track_buffer: 20
+match_thresh: 0.6
+lost_match_thr: 0.0
+iou_weight: 0.5
+reid_weight: 0.5
+conf_weight: 0.1
+angle_weight: 0.05
+penalty_p: 0.2
+penalty_q: 0.4
+reduce_step: 0.05
+tai_thr: 0.5
+min_track_len: 2
+gmc_method: none
+with_reid: false
+model: auto
+device: cpu
