@@ -1,5 +1,8 @@
 """Offline demo: test.mp4 -> out/annotated.mp4 + out/tracks.json.
 
+Stack (single implementation): ECPose-M OpenVINO IR -> ultralytics TrackTrack ->
+selective OSNet OpenVINO IR ReID + OKS persistent IDs.
+
 venv usage:
     .\\.venv\\Scripts\\python.exe tools\\run_test_video.py --input test.mp4 --limit 50
 """
@@ -17,25 +20,27 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'src'))
 
 from dexi.frame_source import Mp4Source
-from dexi.pipeline import DexiPipeline
+from dexi.pipeline import ECPOSE_IR, REID_IR, DexiPipeline
 from dexi.vis import draw_tracks
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--input', default='test.mp4')
-    ap.add_argument('--weights', default='ecpose_m_o3652coco.pth')
     ap.add_argument('--tracker-cfg', default='configs/tracktrack_dexi.yaml')
     ap.add_argument('--limit', type=int, default=50)
     ap.add_argument('--stride', type=int, default=1)
     ap.add_argument('--thresh', type=float, default=0.4)
     ap.add_argument('--out-dir', default='out')
     ap.add_argument('--no-skeleton', action='store_true')
-    ap.add_argument('--backend', default='torch', choices=['torch', 'onnx', 'openvino'])
-    ap.add_argument('--onnx', default='ecpose_m_o3652coco.onnx')
-    ap.add_argument('--threads', type=int, default=4)
-    ap.add_argument('--reid', default=None,
-                    help='OSNet ONNX path to enable selective ReID + persistent IDs')
+    ap.add_argument('--ecpose-ir', default=ECPOSE_IR,
+                    help='ECPose-M OpenVINO IR (.xml)')
+    ap.add_argument('--no-reid', action='store_true',
+                    help='disable selective OSNet ReID (tracker IDs only)')
+    ap.add_argument('--reid-ir', default=REID_IR,
+                    help='OSNet OpenVINO IR (.xml) for selective ReID')
+    ap.add_argument('--threads', type=int, default=None,
+                    help='OpenVINO CPU inference threads (default: OpenVINO auto)')
     ap.add_argument('--rebind-thr', type=float, default=0.55)
     ap.add_argument('--lost-ttl', type=int, default=20)
     args = ap.parse_args()
@@ -43,11 +48,10 @@ def main():
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    pipe = DexiPipeline(weights=args.weights, device='cpu',
-                        det_thresh=args.thresh, tracker_cfg=args.tracker_cfg,
-                        backend=args.backend, onnx_path=args.onnx,
-                        intra_threads=args.threads, reid_model=args.reid,
-                        rebind_thr=args.rebind_thr, lost_ttl=args.lost_ttl)
+    pipe = DexiPipeline(det_thresh=args.thresh, tracker_cfg=args.tracker_cfg,
+                        ecpose_ir=args.ecpose_ir, reid=not args.no_reid,
+                        reid_ir=args.reid_ir, rebind_thr=args.rebind_thr,
+                        lost_ttl=args.lost_ttl, num_threads=args.threads)
     src = Mp4Source(args.input, limit=args.limit, stride=args.stride)
 
     cap = cv2.VideoCapture(args.input)

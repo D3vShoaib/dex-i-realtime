@@ -1,11 +1,12 @@
 # venv + caches
 .venv/
-.venv-dml/
 __pycache__/
 *.pyc
 *.pyo
 
-# large binaries: regenerable, see requirements.txt + tools/
+# model artifacts: everything in models/ stays out of git (*.gitkeep keeps the dir).
+# torch weights + ONNX sources are the input formats; the OpenVINO IR (.xml/.bin)
+# is the runtime format (see requirements.txt for regeneration).
 *.pth
 *.onnx
 *.xml
@@ -16,5 +17,5 @@ __pycache__/
 out*/
 tracks.json
 
-# calibration frames: regenerable via tools/make_calibration.py
-calibration/
+# run logs: transients from tools/run_test_video.py redirects
+*.log

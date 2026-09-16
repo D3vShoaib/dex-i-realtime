@@ -1,76 +1,45 @@
 """ECPose-M O365 adapter: Frame -> normalized Detection objects.
 
-Upstream: EdgeCrafter ecpose (vendored under third_party/EdgeCrafter/ecpose).
-Postprocessor in deploy mode returns (scores, labels, keypoints[17,2]) with NO
+Single implementation: the FP32 OpenVINO IR (models/ecpose_m_o3652coco.xml/.bin)
+is compiled once on CPU and every frame goes through it. Upstream weights come
+from EdgeCrafter ecpose (weights -> models/ecpose_m_o3652coco.onnx -> IR via
+`ov.convert_model`).
+
+Deploy-mode outputs are (scores[N,Q], labels[N,Q], keypoints[N,Q,17,2]) with NO
 explicit bbox, so bbox_xyxy is derived from the keypoint envelope + padding.
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 import cv2
 import numpy as np
-import torch
-import torch.nn as nn
-import torchvision.transforms as T
-from PIL import Image
-
-REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / 'third_party' / 'EdgeCrafter' / 'ecpose'))
-from engine.core import YAMLConfig  # noqa: E402
+import openvino as ov
 
 from .types import Detection
 
 PERSON_LABEL = 1
-CONFIG = REPO / 'third_party' / 'EdgeCrafter' / 'ecpose' / 'configs' / 'ecpose' / 'ecpose_m_coco.yml'
+IR_PATH = 'models/ecpose_m_o3652coco.xml'
+INPUT_SIZE = 640  # square eval_spatial_size, from ecpose_m_coco.yml
+_MEAN = np.array([0.485, 0.456, 0.406], np.float32)
+_STD = np.array([0.229, 0.224, 0.225], np.float32)
 
 
 class ECPoseDetector:
-    def __init__(self, weights: str = 'ecpose_m_o3652coco.pth', device: str = 'cpu',
-                 thresh: float = 0.4, pad_ratio: float = 0.05,
-                 backend: str = 'torch', onnx_path: str = 'ecpose_m_o3652coco.onnx',
-                 intra_threads: int = 4):
+    def __init__(self, ir_path: str = IR_PATH, thresh: float = 0.4,
+                 pad_ratio: float = 0.05, device: str = 'CPU',
+                 num_threads: int | None = None):
         self.thresh = thresh
         self.pad_ratio = pad_ratio
-        self.backend = backend
-        self.tf = T.Compose([
-            T.Resize((640, 640)),
-            T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
-        if backend == 'onnx':
-            import onnxruntime as ort
-            so = ort.SessionOptions()
-            so.intra_op_num_threads = intra_threads
-            self.session = ort.InferenceSession(onnx_path, sess_options=so,
-                                                providers=['CPUExecutionProvider'])
-            self.model = None
-            return
-        if backend == 'openvino':
-            import openvino as ov
-            core = ov.Core()
-            self.ov_model = core.compile_model(onnx_path.replace('.onnx', '.xml'), 'CPU')
-            self.ov_out = [self.ov_model.output(i) for i in range(3)]
-            self.model = None
-            return
-        self.device = torch.device(device)
-        cfg = YAMLConfig(str(CONFIG), resume=weights)
-        cfg.yaml_cfg['ViTAdapter']['skip_load_backbone'] = True
-        ckpt = torch.load(weights, map_location='cpu')
-        state = ckpt['ema']['module'] if 'ema' in ckpt else ckpt['model']
-        cfg.model.load_state_dict(state)
+        self.ir_path = ir_path
+        props = {} if num_threads is None else {ov.properties.inference_num_threads: num_threads}
+        self.model = ov.Core().compile_model(ir_path, device, props)
+        self.out = [self.model.output(i) for i in range(3)]  # scores, labels, keypoints
 
-        class _M(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.model = cfg.model.deploy()
-                self.postprocessor = cfg.postprocessor.deploy()
-
-            def forward(self, images, orig_target_sizes):
-                return self.postprocessor(self.model(images), orig_target_sizes)
-
-        self.model = _M().to(self.device).eval()
-        self.size = tuple(cfg.yaml_cfg['eval_spatial_size'])  # (h, w) = (640, 640)
+    def _preprocess(self, frame_bgr: np.ndarray) -> np.ndarray:
+        """BGR uint8 HxWx3 -> NCHW float32 (1,3,640,640): RGB + ImageNet norm."""
+        img = cv2.resize(frame_bgr, (INPUT_SIZE, INPUT_SIZE))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        img = (img - _MEAN) / _STD
+        return np.ascontiguousarray(img.transpose(2, 0, 1)[None])
 
     def _normalize(self, scores, labels, kps, w: int, h: int,
                    timestamp: float, frame_id: int) -> list[Detection]:
@@ -93,28 +62,10 @@ class ECPoseDetector:
         out.sort(key=lambda d: d.score, reverse=True)
         return out
 
-    @torch.no_grad()
     def infer(self, frame_bgr: np.ndarray, timestamp: float, frame_id: int) -> list[Detection]:
         h, w = frame_bgr.shape[:2]
-        img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
-        tensor = self.tf(img).unsqueeze(0)
-        if self.backend == 'onnx':
-            arr = tensor.numpy().astype(np.float32)
-            size = np.array([[img.size[0], img.size[1]]], dtype=np.int64)
-            scores, labels, kps = self.session.run(
-                None, {'images': arr, 'orig_target_sizes': size})
-            return self._normalize(scores[0], labels[0], kps[0], w, h,
-                                   timestamp, frame_id)
-        if self.backend == 'openvino':
-            arr = tensor.numpy().astype(np.float32)
-            size = np.array([[img.size[0], img.size[1]]], dtype=np.int64)
-            r = self.ov_model({'images': arr, 'orig_target_sizes': size})
-            return self._normalize(r[self.ov_out[0]][0], r[self.ov_out[1]][0],
-                                   r[self.ov_out[2]][0], w, h, timestamp, frame_id)
-        tensor = tensor.to(self.device)
-        sizes = torch.tensor([[img.size[0], img.size[1]]], device=self.device)
-        scores, labels, kps = self.model(tensor, sizes)
-        return self._normalize(scores[0].detach().cpu().numpy(),
-                               labels[0].detach().cpu().numpy(),
-                               kps[0].detach().cpu().numpy(),
-                               w, h, timestamp, frame_id)
+        arr = self._preprocess(frame_bgr)
+        size = np.array([[w, h]], dtype=np.int64)  # orig_target_sizes = (W, H)
+        r = self.model({'images': arr, 'orig_target_sizes': size})
+        return self._normalize(r[self.out[0]][0], r[self.out[1]][0],
+                               r[self.out[2]][0], w, h, timestamp, frame_id)

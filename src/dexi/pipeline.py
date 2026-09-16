@@ -1,26 +1,30 @@
-"""Pipeline: FrameSource -> ECPose -> TrackTrack -> (Phase 3: ReID gate + OKS) -> tracks."""
+"""Pipeline: FrameSource -> ECPose (OpenVINO) -> TrackTrack -> ReID gate + OKS -> tracks.
+
+One inference implementation: ECPose-M and OSNet both run as FP32 OpenVINO IR on CPU.
+"""
 from __future__ import annotations
 
+from .ecpose_adapter import IR_PATH as ECPOSE_IR
 from .ecpose_adapter import ECPoseDetector
 from .frame_source import FrameSource
 from .persistent import PersistentIDManager
+from .reid import IR_PATH as REID_IR
 from .track_adapter import TrackAdapter
 from .types import Track
 
 
 class DexiPipeline:
-    def __init__(self, weights: str = 'ecpose_m_o3652coco.pth', device: str = 'cpu',
-                 det_thresh: float = 0.4, tracker_cfg: str = 'configs/tracktrack_dexi.yaml',
-                 backend: str = 'torch', onnx_path: str = 'ecpose_m_o3652coco.onnx',
-                 intra_threads: int = 4, reid_model: str | None = None,
-                 rebind_thr: float = 0.55, lost_ttl: int = 20):
-        self.detector = ECPoseDetector(weights=weights, device=device, thresh=det_thresh,
-                                       backend=backend, onnx_path=onnx_path,
-                                       intra_threads=intra_threads)
+    def __init__(self, det_thresh: float = 0.4,
+                 tracker_cfg: str = 'configs/tracktrack_dexi.yaml',
+                 ecpose_ir: str = ECPOSE_IR, reid: bool = True,
+                 reid_ir: str = REID_IR, rebind_thr: float = 0.55,
+                 lost_ttl: int = 20, num_threads: int | None = None):
+        self.detector = ECPoseDetector(ir_path=ecpose_ir, thresh=det_thresh,
+                                       num_threads=num_threads)
         self.tracker = TrackAdapter(cfg_path=tracker_cfg)
-        self.manager = PersistentIDManager(reid_model=reid_model or 'osnet_x0_25_msmt17.onnx',
-                                           rebind_thr=rebind_thr, lost_ttl=lost_ttl,
-                                           enable=reid_model is not None)
+        self.manager = PersistentIDManager(reid_model=reid_ir, rebind_thr=rebind_thr,
+                                           lost_ttl=lost_ttl, enable=reid,
+                                           num_threads=num_threads)
 
     def process_frame(self, frame_bgr, timestamp: float, frame_id: int) -> tuple[list, list[Track]]:
         dets = self.detector.infer(frame_bgr, timestamp, frame_id)

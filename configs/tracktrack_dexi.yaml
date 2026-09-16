@@ -1,5 +1,6 @@
 # TrackTrack defaults tuned for 5 FPS static video + ECPose person detections.
-# Baseline: motion-only (with_reid: false, gmc none). Phase 3 enables ReID.
+# Tracker stays motion-only (with_reid: false, gmc none); appearance ReID lives in
+# PersistentIDManager (OpenVINO OSNet IR), so the tracker never loads a torch model.
 tracker_type: tracktrack
 track_high_thresh: 0.5
 track_low_thresh: 0.2

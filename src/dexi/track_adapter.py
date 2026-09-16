@@ -1,8 +1,8 @@
 """TrackTrack adapter: normalized Detections -> persistent tracks.
 
 Wraps ultralytics TRACKTRACK so the tracker is independent of FrameSource.
-Baseline runs motion-only (with_reid=False, gmc=none) for 5 FPS static video.
-ReID (Phase 3) plugs into the same update() via encoder without changing callers.
+Tracker stays motion-only (with_reid=False, gmc=none) for 5 FPS static video;
+appearance ReID is applied afterwards by PersistentIDManager (OpenVINO OSNet).
 """
 from __future__ import annotations
 

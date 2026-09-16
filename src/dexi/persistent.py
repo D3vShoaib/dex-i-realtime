@@ -1,5 +1,7 @@
 """Final persistent ID layer: ambiguity gate -> OSNet ReID -> OKS rerank -> ID map.
 
+OSNet ReID runs the FP32 OpenVINO IR on CPU (models/osnet_x0_25_msmt17.xml/.bin).
+
 TrackTrack owns motion/IoU association and lifecycle. This manager only steps in
 for difficult cases, keeping ReID strictly selective:
 
@@ -17,6 +19,7 @@ import cv2
 import numpy as np
 
 from .pose_rerank import oks
+from .reid import IR_PATH as REID_IR
 from .reid import AppearanceCache, OSNetEncoder, should_use_reid
 from .types import Track
 
@@ -33,16 +36,16 @@ def _iou(a: np.ndarray, b: np.ndarray) -> float:
 
 
 class PersistentIDManager:
-    def __init__(self, reid_model: str = 'osnet_x0_25_msmt17.onnx',
+    def __init__(self, reid_model: str = REID_IR,
                  rebind_thr: float = 0.55, reid_w: float = 0.75,
                  overlap_thr: float = 0.5, lost_ttl: int = 20,
-                 enable: bool = True):
+                 enable: bool = True, num_threads: int | None = None):
         self.enable = enable
         self.rebind_thr = rebind_thr
         self.reid_w = reid_w
         self.overlap_thr = overlap_thr
         self.lost_ttl = lost_ttl
-        self.encoder = OSNetEncoder(reid_model).load() if enable else None
+        self.encoder = OSNetEncoder(reid_model, num_threads=num_threads) if enable else None
         self.cache = AppearanceCache()
         self.tid_to_pid: dict[int, int] = {}
         self.bank: dict[int, dict] = {}  # pid -> {feat, pose, bbox, last_frame}

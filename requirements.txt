@@ -3,37 +3,22 @@
 #   .\.venv\Scripts\python.exe -m pip install --upgrade pip
 #   .\.venv\Scripts\python.exe -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 #   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-torch==2.14.0+cpu
-torchvision==0.29.0+cpu
+#
+# Runtime stack - ONE inference implementation: FP32 OpenVINO IR on CPU.
+#   models/ecpose_m_o3652coco.xml/.bin  -> src/dexi/ecpose_adapter.py (person + 17 keypoints)
+#   models/osnet_x0_25_msmt17.xml/.bin  -> src/dexi/reid.py (selective ReID embedding)
+# All model artifacts live in models/ (gitignored) and are resolved from the repo root.
+# Rebuild an IR from its ONNX source (sources are kept in models/):
+#   .\.venv\Scripts\python.exe -c "import openvino as ov; ov.save_model(ov.Core().read_model('models/ecpose_m_o3652coco.onnx'), 'models/ecpose_m_o3652coco.xml')"
+openvino==2026.3.1
 opencv-python==5.0.0.93
 numpy==2.4.6
-pillow==12.3.0
 pyyaml==6.0.3
+# scipy is optional: it only accelerates the tracker's assignment solver
 scipy==1.18.1
-lap==0.5.13
-filterpy==1.4.5
-onnx==1.22.0
-onnxruntime==1.30.0
+# TrackTrack tracker (src/dexi/track_adapter.py). ultralytics imports torch at
+# package level, so torch/torchvision remain as its dependencies; this pipeline
+# itself never runs torch inference (detector + ReID both run on OpenVINO).
 ultralytics==8.4.153
-pycocotools==2.0.11
-faster-coco-eval==1.8.0
-tensorboard==2.21.0
-transformers==5.17.0
-tabulate==0.10.0
-calflops==0.3.2
-accelerate==1.15.0
-# Phase 2/3: ONNX export + OSNet ReID weights
-onnxscript==0.7.2
-onnxsim==0.7.3
-torchreid==0.2.5
-gdown==6.3.0
-h5py==3.16.0
-beautifulsoup4==4.15.0
-# Phase 4: OpenVINO CPU backend (converts the two ONNX files to .xml/.bin IR)
-openvino==2026.3.1
-# Phase 5 (evaluated): NNCF INT8 was rejected on Zen 2 (slower + accuracy collapse,
-# no VNNI); script kept for Intel targets with VNNI/AMX
-nncf==3.3.0
-# Phase 5 (optional): Vega 8 via DirectML lives in an isolated .venv-dml
-# (onnxruntime-directml==1.24.4, see tools/bench_dml.py); NOT installed here
-# because it conflicts with onnxruntime. OpenVINO CPU (0.72s) beats DML (1.06s).
+torch==2.14.0+cpu
+torchvision==0.29.0+cpu
