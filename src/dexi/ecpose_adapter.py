@@ -75,7 +75,13 @@ class ECPoseDetector:
         self.duplicate_iou_thr = duplicate_iou_thr
         self.duplicate_oks_thr = duplicate_oks_thr
         self.ir_path = ir_path
-        props = {} if num_threads is None else {ov.properties.inference_num_threads: num_threads}
+        # The pipeline submits one frame at a time, so LATENCY avoids the
+        # multi-stream scheduling overhead of OpenVINO's generic default.
+        # This changes scheduling only; model precision and outputs are kept.
+        props = {ov.properties.hint.performance_mode:
+                 ov.properties.hint.PerformanceMode.LATENCY}
+        if num_threads is not None:
+            props[ov.properties.inference_num_threads] = num_threads
         self.model = ov.Core().compile_model(ir_path, device, props)
         self.out = [self.model.output(i) for i in range(3)]  # scores, labels, keypoints
 

@@ -8,7 +8,6 @@ contamination.
 """
 from __future__ import annotations
 
-import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
@@ -106,16 +105,6 @@ class PersistentIDManager:
         self.reid_calls += len(tracks)
         return features
 
-    def _thumb(self, frame_bgr: np.ndarray, track: Track) -> np.ndarray | None:
-        box = _upper_torso_box(track.bbox_xyxy, track.keypoints)
-        x1, y1, x2, y2 = [int(v) for v in box]
-        h, w = frame_bgr.shape[:2]
-        x1, y1 = max(0, x1), max(0, y1)
-        x2, y2 = min(w, x2), min(h, y2)
-        if x2 <= x1 or y2 <= y1:
-            return None
-        return cv2.resize(frame_bgr[y1:y2, x1:x2], (64, 128))
-
     def _remember_feature(self, pid: int, feat: np.ndarray | None,
                           score: float) -> np.ndarray | None:
         ema = self.cache.update(pid, feat, score)
@@ -159,15 +148,14 @@ class PersistentIDManager:
                 + self.spatial_w * location)
 
     def _new_identity(self, track: Track, feat: np.ndarray | None,
-                      frame_bgr: np.ndarray, frame_id: int) -> int:
+                      frame_id: int) -> int:
         pid = self.next_pid
         self.next_pid += 1
         self.bank[pid] = {'gallery': []}
         ema = self._remember_feature(pid, feat, track.score)
         self.bank[pid].update(feat=ema, pose=track.keypoints,
                               bbox=track.bbox_xyxy.copy(),
-                              last_frame=frame_id,
-                              thumb=self._thumb(frame_bgr, track))
+                              last_frame=frame_id)
         return pid
 
     def _global_assignment(self, tracks: list[Track], frame_bgr: np.ndarray,
@@ -182,7 +170,7 @@ class PersistentIDManager:
         created_pids: set[int] = set()
 
         if not candidate_pids:
-            assignments = [self._new_identity(t, f, frame_bgr, frame_id)
+            assignments = [self._new_identity(t, f, frame_id)
                            for t, f in zip(tracks, features)]
             created_pids.update(assignments)
         else:
@@ -206,7 +194,7 @@ class PersistentIDManager:
                 if col < n_ids and base[row, col] >= self.rebind_thr:
                     assignments.append(candidate_pids[col])
                 else:
-                    pid = self._new_identity(track, feat, frame_bgr, frame_id)
+                    pid = self._new_identity(track, feat, frame_id)
                     assignments.append(pid)
                     created_pids.add(pid)
 
@@ -229,7 +217,6 @@ class PersistentIDManager:
                 similarity = self._appearance_similarity(feat, rec)
                 if similarity >= self.gallery_update_thr:
                     rec['feat'] = self._remember_feature(pid, feat, track.score)
-                    rec['thumb'] = self._thumb(frame_bgr, track)
             rec['last_frame'] = frame_id
             rec['bbox'] = track.bbox_xyxy.copy()
             if track.keypoints is not None:
@@ -239,8 +226,7 @@ class PersistentIDManager:
 
         self.last_assignment_frame = frame_id
 
-    def _continue_assignments(self, tracks: list[Track], frame_bgr: np.ndarray,
-                              frame_id: int, ambiguous: set[int]) -> None:
+    def _continue_assignments(self, tracks: list[Track], frame_id: int) -> None:
         for track in tracks:
             tid = track.track_id
             pid = self.tid_to_pid[tid]
@@ -249,8 +235,6 @@ class PersistentIDManager:
             rec['bbox'] = track.bbox_xyxy.copy()
             if track.keypoints is not None:
                 rec['pose'] = track.keypoints
-            if tid not in ambiguous:
-                rec['thumb'] = self._thumb(frame_bgr, track)
             track.tid, track.track_id = tid, pid
             track.reid_feat = rec.get('feat')
 
@@ -273,7 +257,7 @@ class PersistentIDManager:
         if needs_assignment:
             self._global_assignment(tracks, frame_bgr, frame_id, ambiguous)
         elif tracks:
-            self._continue_assignments(tracks, frame_bgr, frame_id, ambiguous)
+            self._continue_assignments(tracks, frame_id)
 
         live_pids = {track.track_id for track in tracks}
         dead = [pid for pid, rec in self.bank.items()

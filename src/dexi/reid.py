@@ -54,7 +54,10 @@ class OSNetEncoder:
     def __init__(self, ir_path: str = IR_PATH, device: str = 'CPU',
                  num_threads: int | None = None):
         self.ir_path = ir_path
-        props = {} if num_threads is None else {ov.properties.inference_num_threads: num_threads}
+        props = {ov.properties.hint.performance_mode:
+                 ov.properties.hint.PerformanceMode.LATENCY}
+        if num_threads is not None:
+            props[ov.properties.inference_num_threads] = num_threads
         self.model = ov.Core().compile_model(ir_path, device, props)
         self.inp = self.model.input(0)
         self.out = self.model.output(0)
