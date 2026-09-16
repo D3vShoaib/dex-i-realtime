@@ -6,7 +6,7 @@
 torch==2.14.0+cpu
 torchvision==0.29.0+cpu
 opencv-python==5.0.0.93
-numpy==2.5.2
+numpy==2.4.6
 pillow==12.3.0
 pyyaml==6.0.3
 scipy==1.18.1
@@ -31,3 +31,9 @@ h5py==3.16.0
 beautifulsoup4==4.15.0
 # Phase 4: OpenVINO CPU backend (converts the two ONNX files to .xml/.bin IR)
 openvino==2026.3.1
+# Phase 5 (evaluated): NNCF INT8 was rejected on Zen 2 (slower + accuracy collapse,
+# no VNNI); script kept for Intel targets with VNNI/AMX
+nncf==3.3.0
+# Phase 5 (optional): Vega 8 via DirectML lives in an isolated .venv-dml
+# (onnxruntime-directml==1.24.4, see tools/bench_dml.py); NOT installed here
+# because it conflicts with onnxruntime. OpenVINO CPU (0.72s) beats DML (1.06s).
