@@ -1,10 +1,10 @@
-"""Offline demo: test.mp4 -> out/annotated.mp4 + out/tracks.json.
+"""Offline demo: input MP4 -> out/annotated.mp4 + out/tracks.json.
 
 Stack (single implementation): ECPose-M OpenVINO IR -> ultralytics TrackTrack ->
 selective OSNet OpenVINO IR ReID + OKS persistent IDs.
 
 venv usage:
-    .\\.venv\\Scripts\\python.exe tools\\run_test_video.py --input test.mp4 --limit 50
+    python tools\\run_test_video.py --input test_first_1min.mp4 --limit 50
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from dexi.vis import draw_tracks
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--input', default='test.mp4')
+    ap.add_argument('--input', default='test_first_1min.mp4')
     ap.add_argument('--tracker-cfg', default='configs/tracktrack_dexi.yaml')
     ap.add_argument('--limit', type=int, default=50)
     ap.add_argument('--stride', type=int, default=1)
@@ -42,7 +42,14 @@ def main():
     ap.add_argument('--threads', type=int, default=None,
                     help='OpenVINO CPU inference threads (default: OpenVINO auto)')
     ap.add_argument('--rebind-thr', type=float, default=0.55)
-    ap.add_argument('--lost-ttl', type=int, default=20)
+    ap.add_argument('--lost-ttl', type=int, default=300,
+                    help='frames to retain a lost identity (default: 300 = 60s at 5 FPS)')
+    ap.add_argument('--gallery-size', type=int, default=5,
+                    help='appearance embeddings retained per identity')
+    ap.add_argument('--reid-refresh', type=int, default=5,
+                    help='frames between global identity assignments')
+    ap.add_argument('--spatial-weight', type=float, default=0.10,
+                    help='location contribution to global assignment score')
     args = ap.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -51,7 +58,9 @@ def main():
     pipe = DexiPipeline(det_thresh=args.thresh, tracker_cfg=args.tracker_cfg,
                         ecpose_ir=args.ecpose_ir, reid=not args.no_reid,
                         reid_ir=args.reid_ir, rebind_thr=args.rebind_thr,
-                        lost_ttl=args.lost_ttl, num_threads=args.threads)
+                        lost_ttl=args.lost_ttl, gallery_size=args.gallery_size,
+                        reid_refresh=args.reid_refresh, spatial_w=args.spatial_weight,
+                        num_threads=args.threads)
     src = Mp4Source(args.input, limit=args.limit, stride=args.stride)
 
     cap = cv2.VideoCapture(args.input)

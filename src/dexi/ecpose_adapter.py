@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 import openvino as ov
 
+from .pose_rerank import oks
 from .types import Detection
 
 PERSON_LABEL = 1
@@ -23,12 +24,56 @@ _MEAN = np.array([0.485, 0.456, 0.406], np.float32)
 _STD = np.array([0.229, 0.224, 0.225], np.float32)
 
 
+def _bbox_iou(a: np.ndarray, b: np.ndarray) -> float:
+    ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
+    ix2, iy2 = min(a[2], b[2]), min(a[3], b[3])
+    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    if inter <= 0:
+        return 0.0
+    a_area = max(1.0, (a[2] - a[0]) * (a[3] - a[1]))
+    b_area = max(1.0, (b[2] - b[0]) * (b[3] - b[1]))
+    return float(inter / max(1.0, a_area + b_area - inter))
+
+
+def suppress_duplicate_poses(detections: list[Detection],
+                             iou_thr: float = 0.40,
+                             oks_thr: float = 0.65) -> list[Detection]:
+    """Pose NMS: remove lower-confidence detections of the same body.
+
+    Requiring both box overlap and symmetric OKS keeps nearby or crossing
+    people whose boxes overlap but whose joint layouts describe different
+    bodies.
+    """
+    kept: list[Detection] = []
+    for detection in sorted(detections, key=lambda item: item.score,
+                            reverse=True):
+        duplicate = False
+        for accepted in kept:
+            if _bbox_iou(detection.bbox_xyxy, accepted.bbox_xyxy) < iou_thr:
+                continue
+            pose_similarity = 0.5 * (
+                oks(detection.keypoints, accepted.keypoints,
+                    accepted.bbox_xyxy)
+                + oks(accepted.keypoints, detection.keypoints,
+                      detection.bbox_xyxy)
+            )
+            if pose_similarity >= oks_thr:
+                duplicate = True
+                break
+        if not duplicate:
+            kept.append(detection)
+    return kept
+
+
 class ECPoseDetector:
     def __init__(self, ir_path: str = IR_PATH, thresh: float = 0.4,
-                 pad_ratio: float = 0.05, device: str = 'CPU',
+                 pad_ratio: float = 0.05, duplicate_iou_thr: float = 0.40,
+                 duplicate_oks_thr: float = 0.65, device: str = 'CPU',
                  num_threads: int | None = None):
         self.thresh = thresh
         self.pad_ratio = pad_ratio
+        self.duplicate_iou_thr = duplicate_iou_thr
+        self.duplicate_oks_thr = duplicate_oks_thr
         self.ir_path = ir_path
         props = {} if num_threads is None else {ov.properties.inference_num_threads: num_threads}
         self.model = ov.Core().compile_model(ir_path, device, props)
@@ -60,7 +105,8 @@ class ECPoseDetector:
                                  frame_id=frame_id, timestamp=timestamp))
         # highest-score first (helps greedy association + TAI NMS)
         out.sort(key=lambda d: d.score, reverse=True)
-        return out
+        return suppress_duplicate_poses(out, self.duplicate_iou_thr,
+                                        self.duplicate_oks_thr)
 
     def infer(self, frame_bgr: np.ndarray, timestamp: float, frame_id: int) -> list[Detection]:
         h, w = frame_bgr.shape[:2]

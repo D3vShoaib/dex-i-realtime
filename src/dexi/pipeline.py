@@ -1,4 +1,4 @@
-"""Pipeline: FrameSource -> ECPose (OpenVINO) -> TrackTrack -> ReID gate + OKS -> tracks.
+"""Pipeline: ECPose -> TrackTrack -> global ReID assignment -> tracks.
 
 One inference implementation: ECPose-M and OSNet both run as FP32 OpenVINO IR on CPU.
 """
@@ -18,12 +18,16 @@ class DexiPipeline:
                  tracker_cfg: str = 'configs/tracktrack_dexi.yaml',
                  ecpose_ir: str = ECPOSE_IR, reid: bool = True,
                  reid_ir: str = REID_IR, rebind_thr: float = 0.55,
-                 lost_ttl: int = 20, num_threads: int | None = None):
+                 lost_ttl: int = 300, gallery_size: int = 5,
+                 reid_refresh: int = 5, spatial_w: float = 0.10,
+                 num_threads: int | None = None):
         self.detector = ECPoseDetector(ir_path=ecpose_ir, thresh=det_thresh,
                                        num_threads=num_threads)
         self.tracker = TrackAdapter(cfg_path=tracker_cfg)
         self.manager = PersistentIDManager(reid_model=reid_ir, rebind_thr=rebind_thr,
-                                           lost_ttl=lost_ttl, enable=reid,
+                                           lost_ttl=lost_ttl, gallery_size=gallery_size,
+                                           refresh_interval=reid_refresh,
+                                           spatial_w=spatial_w, enable=reid,
                                            num_threads=num_threads)
 
     def process_frame(self, frame_bgr, timestamp: float, frame_id: int) -> tuple[list, list[Track]]:

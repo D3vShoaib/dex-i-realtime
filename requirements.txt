@@ -14,7 +14,7 @@ openvino==2026.3.1
 opencv-python==5.0.0.93
 numpy==2.4.6
 pyyaml==6.0.3
-# scipy is optional: it only accelerates the tracker's assignment solver
+# Required for global one-to-one persistent identity assignment.
 scipy==1.18.1
 # TrackTrack tracker (src/dexi/track_adapter.py). ultralytics imports torch at
 # package level, so torch/torchvision remain as its dependencies; this pipeline

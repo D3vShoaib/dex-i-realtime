@@ -1,13 +1,7 @@
-"""Selective lightweight ReID: OSNet-x0.25 MSMT17 FP32 OpenVINO IR on CPU.
+"""Lightweight ReID: OSNet-x0.25 MSMT17 FP32 OpenVINO IR on CPU.
 
-Policy: call ReID ONLY for difficult cases; cache one EMA vector per track.
-
-  should_use_reid(...) -> True when:
-    - top-2 motion costs are close (ambiguous), or
-    - max IoU overlap with another det/track > overlap_thr, or
-    - reactivating a lost track (lost_age > 0)
-
-Stable, non-overlapping tracks cost zero encoder calls (see persistent.py).
+Persistent identity policy and the bounded appearance gallery live in
+persistent.py. This module only owns embedding preprocessing/inference and EMA.
 """
 from __future__ import annotations
 
@@ -47,17 +41,6 @@ class AppearanceCache:
         for k in list(self.bank):
             if k not in keep:
                 del self.bank[k]
-
-
-def should_use_reid(cost_margin: float, max_overlap: float, lost_age: int,
-                    margin_thr: float = 0.1, overlap_thr: float = 0.5) -> bool:
-    if lost_age > 0:
-        return True
-    if max_overlap > overlap_thr:
-        return True
-    if cost_margin < margin_thr:
-        return True
-    return False
 
 
 class OSNetEncoder:
