@@ -4,13 +4,14 @@ __pycache__/
 *.pyc
 *.pyo
 
-# model artifacts: everything in models/ stays out of git (*.gitkeep keeps the dir).
-# torch weights + ONNX sources are the input formats; the OpenVINO IR (.xml/.bin)
-# is the runtime format (see requirements.txt for regeneration).
+# Model artifacts are checked in so the pipeline is runnable after cloning.
+# Keep unrelated model files out of git.
 *.pth
 *.onnx
 *.xml
 *.bin
+!models/
+!models/*
 
 # video + outputs (test.mp4 is the source; annotated outputs + tracks are derivable)
 *.mp4
